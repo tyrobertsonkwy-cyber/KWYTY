@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Resource Booking</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .time-slot {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .time-slot:hover:not(.booked):not(.selected) {
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .time-slot.selected {
+            background: #dbeafe;
+            border-left: 4px solid #2563eb;
+            box-shadow: 0 0 0 2px #2563eb;
+        }
+
+        .time-slot.booked {
+            background: #fee2e2;
+            border-left: 4px solid #ef4444;
+            opacity: 0.8;
+        }
+
+        .time-slot.booked::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #ef4444;
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .time-slot.booked-by-me {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+        }
+
+        .time-slot.booked-by-me::after {
+            background: #f59e0b;
+        }
+
+        .time-slot.partial-booked {
+            background: linear-gradient(to right, #fee2e2 50%, #ffffff 50%);
+            background-size: 200% 100%;
+        }
+
+        .range-select {
+            background: #eff6ff;
+            border: 2px dashed #3b82f6;
+        }
+
+        .booking-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            background: #ef4444;
+            opacity: 0.1;
+            pointer-events: none;
+        }
+
+        .pulse-ring {
+            position: absolute;
+            border-radius: 50%;
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.33); }
+            80%, 100% { opacity: 0; }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .duration-btn {
+            transition: all 0.2s;
+        }
+        .duration-btn.active {
+            background: #2563eb;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 16px 24px;
+            border-radius: 12px;
+            color: white;
+            font-weight: 500;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            transform: translateY(100px) scale(0.9);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .toast.show {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+
+        .resource-card {
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .resource-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <!-- Main Container -->
+    <div class="max-w-7xl mx-auto">
+        
+        <!-- Header -->
+        <div class="glass-panel rounded-3xl shadow-xl p-6 md:p-8 mb-8">
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                <div>
+                    <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-2 flex items-center gap-3">
+                        <i class="fas fa-calendar-alt text-blue-600"></i>
+                        Resource Booking
+                    </h1>
+                    <p class="text-gray-500 text-lg">Select time slots and duration to book resources</p>
+                </div>
+
+                <!-- Date Navigation -->
+                <div class="flex items-center gap-4 bg-gray-50 rounded-2xl p-2 border border-gray-200">
+                    <button onclick="changeDate(-1)" class="w-12 h-12 rounded-xl bg-white shadow-sm hover:shadow-md hover:bg-gray-50 flex items-center justify-center text-gray-600 transition-all active:scale-95">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <div class="px-6 text-center min-w-[160px]">
+                        <div id="currentDateDisplay" class="font-bold text-gray-800 text-lg"></div>
+                        <div id="currentDayDisplay" class="text-xs text-gray-500 uppercase tracking-wider font-medium"></div>
+                    </div>
+                    <button onclick="changeDate(1)" class="w-12 h-12 rounded-xl bg-white shadow-sm hover:shadow-md hover:bg-gray-50 flex items-center justify-center text-gray-600 transition-all active:scale-95">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="mt-8 pt-6 border-t border-gray-100 grid md:grid-cols-2 gap-6">
+                <!-- Employee Select -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wider">Employee</label>
+                    <select id="employeeSelect" class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:ring-0 outline-none bg-white text-gray-800 font-medium text-lg transition-colors cursor-pointer hover:border-gray-300">
+                        <option value="">👤 Select your name...</option>
+                        <option value="Sanjayson">Sanjayson</option>
+                        <option value="Ty">Ty</option>
+                        <option value="Ruby">Ruby</option>
+                        <option value="Becky">Becky</option>
+                        <option value="Travis">Travis</option>
+                    </select>
+                </div>
+
+                <!-- Quick Duration -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wider">Quick Duration</label>
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="setDuration(30)" class="duration-btn px-4 py-2 rounded-lg border-2 border-gray-200 font-medium text-gray-600 hover:border-blue-400" data-duration="30">30 min</button>
+                        <button onclick="setDuration(60)" class="duration-btn px-4 py-2 rounded-lg border-2 border-gray-200 font-medium text-gray-600 hover:border-blue-400 active" data-duration="60">1 hour</button>
+                        <button onclick="setDuration(120)" class="duration-btn px-4 py-2 rounded-lg border-2 border-gray-200 font-medium text-gray-600 hover:border-blue-400" data-duration="120">2 hours</button>
+                        <button onclick="setDuration(240)" class="duration-btn px-4 py-2 rounded-lg border-2 border-gray-200 font-medium text-gray-600 hover:border-blue-400" data-duration="240">4 hours</button>
+                        <button onclick="toggleCustomDuration()" class="duration-btn px-4 py-2 rounded-lg border-2 border-gray-200 font-medium text-gray-600 hover:border-blue-400" id="customDurationBtn">Custom...</button>
+                    </div>
+                    
+                    <!-- Custom Duration Input -->
+                    <div id="customDurationPanel" class="hidden mt-3 flex items-center gap-3 animate-fade-in">
+                        <input type="number" id="customHours" min="0" max="8" value="1" class="w-20 px-3 py-2 rounded-lg border-2 border-gray-200 text-center font-bold text-lg">
+                        <span class="text-gray-500">hours</span>
+                        <input type="number" id="customMinutes" min="0" max="59" step="30" value="0" class="w-20 px-3 py-2 rounded-lg border-2 border-gray-200 text-center font-bold text-lg">
+                        <span class="text-gray-500">min</span>
+                        <button onclick="applyCustomDuration()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">Apply</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Selection Info -->
+            <div id="selectionInfo" class="hidden mt-6 p-4 bg-blue-50 rounded-xl border-2 border-blue-200 flex items-center justify-between animate-fade-in">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                        <i class="fas fa-mouse-pointer"></i>
+                    </div>
+                    <div>
+                        <div class="font-bold text-blue-900">Click a start time</div>
+                        <div class="text-sm text-blue-700">Duration: <span id="selectedDurationDisplay">1 hour</span></div>
+                    </div>
+                </div>
+                <button onclick="clearSelection()" class="text-blue-600 hover:text-blue-800 font-medium text-sm">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Resources Grid -->
+        <div class="grid lg:grid-cols-3 gap-6">
+            
+            <!-- RAV 4 -->
+            <div class="resource-card glass-panel rounded-3xl shadow-lg overflow-hidden flex flex-col h-full bg-white">
+                <div class="p-6 bg-gradient-to-br from-blue-600 to-blue-700 text-white">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl">
+                            <i class="fas fa-car"></i>
+                        </div>
+                        <span class="px-3 py-1 rounded-full bg-white/20 backdrop-blur text-xs font-bold uppercase tracking-wider">Vehicle</span>
+                    </div>
+                    <h2 class="text-2xl font-bold">RAV 4</h2>
+                    <p class="text-blue-100 text-sm mt-1">Toyota SUV</p>
+                </div>
+                <div id="rav4-schedule" class="flex-1 p-4 space-y-1 overflow-y-auto max-h-[700px] custom-scrollbar">
+                    <!-- Generated by JS -->
+                </div>
+            </div>
+
+            <!-- Kia -->
+            <div class="resource-card glass-panel rounded-3xl shadow-lg overflow-hidden flex flex-col h-full bg-white">
+                <div class="p-6 bg-gradient-to-br from-purple-600 to-purple-700 text-white">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl">
+                            <i class="fas fa-car-side"></i>
+                        </div>
+                        <span class="px-3 py-1 rounded-full bg-white/20 backdrop-blur text-xs font-bold uppercase tracking-wider">Vehicle</span>
+                    </div>
+                    <h2 class="text-2xl font-bold">Kia</h2>
+                    <p class="text-purple-100 text-sm mt-1">Compact Car</p>
+                </div>
+                <div id="kia-schedule" class="flex-1 p-4 space-y-1 overflow-y-auto max-h-[700px] custom-scrollbar">
+                    <!-- Generated by JS -->
+                </div>
+            </div>
+
+            <!-- Meeting Room -->
+            <div class="resource-card glass-panel rounded-3xl shadow-lg overflow-hidden flex flex-col h-full bg-white">
+                <div class="p-6 bg-gradient-to-br from-emerald-600 to-emerald-700 text-white">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <span class="px-3 py-1 rounded-full bg-white/20 backdrop-blur text-xs font-bold uppercase tracking-wider">Conference</span>
+                    </div>
+                    <h2 class="text-2xl font-bold">Meeting Room</h2>
+                    <p class="text-emerald-100 text-sm mt-1">Conference Space</p>
+                </div>
+                <div id="room-schedule" class="flex-1 p-4 space-y-1 overflow-y-auto max-h-[700px] custom-scrollbar">
+                    <!-- Generated by JS -->
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast">
+        <i class="fas fa-check-circle text-xl"></i>
+        <span id="toastMessage">Operation successful</span>
+    </div>
+
+    <script>
+        // State
+        let currentDate = new Date();
+        let selectedDuration = 60; // minutes
+        let selectionStart = null; // { resource, time }
+        let bookings = {}; // { "YYYY-MM-DD": { "rav4": [ {start: "09:00", end: "10:00", employee: "Ty"}, ... ] } }
+        
+        const resources = {
+            rav4: { name: "RAV 4", id: "rav4-schedule", color: "blue" },
+            kia: { name: "Kia", id: "kia-schedule", color: "purple" },
+            room: { name: "Meeting Room", id: "room-schedule", color: "emerald" }
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            updateDateDisplay();
+            generateTimeSlots();
+            renderBookings();
+            
+            // Add demo data
+            addDemoData();
+        });
+
+        function addDemoData() {
+            const today = formatDate(currentDate);
+            if (!bookings[today]) bookings[today] = { rav4: [], kia: [], room: [] };
+            
+            // Demo: Ty has RAV4 from 9-10:30
+            bookings[today].rav4.push({ start: "09:00", end: "10:30", employee: "Ty" });
+            // Demo: Ruby has Meeting Room 14-15
+            bookings[today].room.push({ start: "14:00", end: "15:00", employee: "Ruby" });
+            
+            renderBookings();
+        }
+
+        function formatDate(date) {
+            return date.toISOString().split('T')[0];
+        }
+
+        function updateDateDisplay() {
+            const options = { month: 'long', day: 'numeric' };
+            const dayOptions = { weekday: 'long' };
+            document.getElementById('currentDateDisplay').textContent = currentDate.toLocaleDateString('en-US', options);
+            document.getElementById('currentDayDisplay').textContent = currentDate.toLocaleDateString('en-US', dayOptions);
+        }
+
+        function changeDate(days) {
+            currentDate.setDate(currentDate.getDate() + days);
+            updateDateDisplay();
+            clearSelection();
+            renderBookings();
+        }
+
+        function generateTimeSlots() {
+            const slots = [];
+            for (let hour = 8; hour <= 17; hour++) {
+                for (let min = 0; min < 60; min += 30) {
+                    const time = `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+                    slots.push(time);
+                }
+            }
+            return slots;
+        }
+
+        function timeToMinutes(time) {
+            const [h, m] = time.split(':').map(Number);
+            return h * 60 + m;
+        }
+
+        function minutesToTime(mins) {
+            const h = Math.floor(mins / 60);
+            const m = mins % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+        }
+
+        function setDuration(mins) {
+            selectedDuration = mins;
+            document.querySelectorAll('.duration-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (parseInt(btn.dataset.duration) === mins) btn.classList.add('active');
+            });
+            document.getElementById('customDurationPanel').classList.add('hidden');
+            updateDurationDisplay();
+            
+            if (selectionStart) {
+                renderBookings(); // Re-render to show preview
+            }
+        }
+
+        function toggleCustomDuration() {
+            const panel = document.getElementById('customDurationPanel');
+            panel.classList.toggle('hidden');
+            document.querySelectorAll('.duration-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('customDurationBtn').classList.add('active');
+        }
+
+        function applyCustomDuration() {
+            const hours = parseInt(document.getElementById('customHours').value) || 0;
+            const mins = parseInt(document.getElementById('customMinutes').value) || 0;
+            selectedDuration = hours * 60 + mins;
+            updateDurationDisplay();
+            document.getElementById('customDurationPanel').classList.add('hidden');
+            if (selectionStart) renderBookings();
+        }
+
+        function updateDurationDisplay() {
+            const hours = Math.floor(selectedDuration / 60);
+            const mins = selectedDuration % 60;
+            let text = '';
+            if (hours > 0) text += `${hours} hour${hours > 1 ? 's' : ''}`;
+            if (mins > 0) text += `${hours > 0 ? ' ' : ''}${mins} min`;
+            document.getElementById('selectedDurationDisplay').textContent = text || '0 min';
+        }
+
+        function getBookingsForDateResource(date, resource) {
+            if (!bookings[date]) bookings[date] = { rav4: [], kia: [], room: [] };
+            return bookings[date][resource];
+        }
+
+        function isTimeBooked(date, resource, time) {
+            const mins = timeToMinutes(time);
+            const dayBookings = getBookingsForDateResource(date, resource);
+            return dayBookings.find(b => {
+                const start = timeToMinutes(b.start);
+                const end = timeToMinutes(b.end);
+                return mins >= start && mins < end;
+            });
+        }
+
+        function isTimeAvailable(date, resource, startTime, duration) {
+            const startMins = timeToMinutes(startTime);
+            const endMins = startMins + duration;
+            
+            // Check business hours (8:00 - 17:00)
+            if (startMins < 480 || endMins > 1020) return false;
+            
+            const dayBookings = getBookingsForDateResource(date, resource);
+            
+            // Check overlap with existing bookings
+            for (let booking of dayBookings) {
+                const bStart = timeToMinutes(booking.start);
+                const bEnd = timeToMinutes(booking.end);
+                
+                if (startMins < bEnd && endMins > bStart) {
+                    return false; // Overlap detected
+                }
+            }
+            return true;
+        }
+
+        function renderBookings() {
+            const dateKey = formatDate(currentDate);
+            const timeSlots = generateTimeSlots();
+            const currentEmployee = document.getElementById('employeeSelect').value;
+            
+            Object.keys(resources).forEach(resourceKey => {
+                const container = document.getElementById(resources[resourceKey].id);
+                container.innerHTML = '';
+                
+                timeSlots.forEach((time, index) => {
+                    const booking = isTimeBooked(dateKey, resourceKey, time);
+                    const slot = createTimeSlot(time, booking, resourceKey, index);
+                    container.appendChild(slot);
+                });
+            });
+            
+            updateSelectionInfo();
+        }
+
+        function createTimeSlot(time, booking, resourceKey, index) {
+            const div = document.createElement('div');
+            const currentEmployee = document.getElementById('employeeSelect').value;
+            const dateKey = formatDate(currentDate);
+            
+            let className = 'time-slot rounded-lg p-3 border border-gray-100 flex items-center justify-between cursor-pointer bg-white hover:bg-gray-50';
+            
+            // Check if this slot is part of current selection preview
+            let isInSelection = false;
+            if (selectionStart && selectionStart.resource === resourceKey) {
+                const slotMins = timeToMinutes(time);
+                const startMins = timeToMinutes(selectionStart.time);
+                const endMins = startMins + selectedDuration;
+                if (slotMins >= startMins && slotMins < endMins) {
+                    isInSelection = true;
+                }
+            }
+            
+            if (booking) {
+                const isMine = booking.employee === currentEmployee;
+                className = isMine ? 'time-slot booked booked-by-me rounded-lg p-3 flex items-center justify-between' 
+                                   : 'time-slot booked rounded-lg p-3 flex items-center justify-between';
+                
+                div.className = className;
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full ${isMine ? 'bg-amber-200 text-amber-800' : 'bg-red-200 text-red-800'} flex items-center justify-center text-xs font-bold">
+                            ${booking.employee.charAt(0)}
+                        </div>
+                        <div>
+                            <div class="font-bold text-gray-800">${time}</div>
+                            <div class="text-xs ${isMine ? 'text-amber-700' : 'text-red-700'} font-medium line-through">
+                                ${booking.employee} • ${booking.start}-${booking.end}
+                            </div>
+                        </div>
+                    </div>
+                    ${isMine ? `
+                        <button onclick="event.stopPropagation(); cancelBooking('${resourceKey}', '${booking.start}', '${booking.end}')" 
+                                class="w-8 h-8 rounded-full hover:bg-red-200 flex items-center justify-center text-red-700 transition-colors" title="Cancel">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    ` : '<i class="fas fa-lock text-red-300"></i>'}
+                `;
+            } else if (isInSelection) {
+                div.className = 'time-slot selected rounded-lg p-3 flex items-center justify-between';
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center animate-pulse">
+                            <i class="fas fa-plus text-xs"></i>
+                        </div>
+                        <div>
+                            <div class="font-bold text-blue-900">${time}</div>
+                            <div class="text-xs text-blue-700 font-medium">Selected</div>
+                        </div>
+                    </div>
+                    ${index === Math.floor(timeToMinutes(selectionStart.time) / 30 - 16) ? `
+                        <button onclick="event.stopPropagation(); confirmBooking()" class="px-3 py-1 bg-blue-600 text-white text-xs rounded-full font-bold hover:bg-blue-700">
+                            Book
+                        </button>
+                    ` : ''}
+                `;
+                div.onclick = () => selectTimeSlot(resourceKey, time);
+            } else {
+                div.className = className;
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center">
+                            <i class="far fa-clock text-xs"></i>
+                        </div>
+                        <div class="font-bold text-gray-600">${time}</div>
+                    </div>
+                    <div class="w-6 h-6 rounded-full border-2 border-gray-200"></div>
+                `;
+                div.onclick = () => selectTimeSlot(resourceKey, time);
+            }
+            
+            return div;
+        }
+
+        function selectTimeSlot(resource, time) {
+            const currentEmployee = document.getElementById('employeeSelect').value;
+            
+            if (!currentEmployee) {
+                showToast('Please select your name first!', 'error');
+                document.getElementById('employeeSelect').focus();
+                return;
+            }
+            
+            const dateKey = formatDate(currentDate);
+            
+            // Check if clicking same slot (cancel)
+            if (selectionStart && selectionStart.resource === resource && selectionStart.time === time) {
+                confirmBooking();
+                return;
+            }
+            
+            // Check if slot is available for duration
+            if (!isTimeAvailable(dateKey, resource, time, selectedDuration)) {
+                showToast('This time range is not fully available', 'error');
+                return;
+            }
+            
+            selectionStart = { resource, time };
+            renderBookings();
+            updateSelectionInfo();
+        }
+
+        function updateSelectionInfo() {
+            const info = document.getElementById('selectionInfo');
+            if (selectionStart) {
+                info.classList.remove('hidden');
+                const endTime = minutesToTime(timeToMinutes(selectionStart.time) + selectedDuration);
+                document.getElementById('selectedDurationDisplay').textContent = 
+                    `${selectionStart.time} - ${endTime} (${formatDuration(selectedDuration)})`;
+            } else {
+                info.classList.add('hidden');
+            }
+        }
+
+        function formatDuration(mins) {
+            const h = Math.floor(mins / 60);
+            const m = mins % 60;
+            if (h > 0 && m > 0) return `${h}h ${m}m`;
+            if (h > 0) return `${h} hour${h > 1 ? 's' : ''}`;
+            return `${m} min`;
+        }
+
+        function confirmBooking() {
+            if (!selectionStart) return;
+            
+            const currentEmployee = document.getElementById('employeeSelect').value;
+            const dateKey = formatDate(currentDate);
+            const { resource, time } = selectionStart;
+            const endTime = minutesToTime(timeToMinutes(time) + selectedDuration);
+            
+            // Final availability check
+            if (!isTimeAvailable(dateKey, resource, time, selectedDuration)) {
+                showToast('Time slot no longer available', 'error');
+                clearSelection();
+                return;
+            }
+            
+            // Create booking
+            getBookingsForDateResource(dateKey, resource).push({
+                start: time,
+                end: endTime,
+                employee: currentEmployee
+            });
+            
+            showToast(`Booked ${resources[resource].name} from ${time} to ${endTime}`, 'success');
+            clearSelection();
+            renderBookings();
+        }
+
+        function cancelBooking(resource, start, end) {
+            const currentEmployee = document.getElementById('employeeSelect').value;
+            const dateKey = formatDate(currentDate);
+            const dayBookings = getBookingsForDateResource(dateKey, resource);
+            
+            const idx = dayBookings.findIndex(b => b.start === start && b.end === end && b.employee === currentEmployee);
+            
+            if (idx > -1) {
+                dayBookings.splice(idx, 1);
+                showToast('Booking cancelled', 'info');
+                renderBookings();
+            }
+        }
+
+        function clearSelection() {
+            selectionStart = null;
+            renderBookings();
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle';
+            const color = type === 'success' ? 'bg-emerald-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600';
+            
+            toast.className = `toast ${color} show`;
+            toast.innerHTML = `<i class="fas ${icon} text-xl"></i><span>${message}</span>`;
+            
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // Close custom duration on click outside
+        document.addEventListener('click', (e) => {
+            const panel = document.getElementById('customDurationPanel');
+            const btn = document.getElementById('customDurationBtn');
+            if (!panel.contains(e.target) && !btn.contains(e.target)) {
+                panel.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
